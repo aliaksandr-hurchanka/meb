@@ -1,0 +1,1022 @@
+<?php
+/**
+ * Implements hook_install().
+ *
+ * Perform actions to set up the site for this profile.
+ */
+function drupalife_store_install() {
+  $t = get_t();
+  // We create variable to store all selected data during installation.
+  // This help us to make updates and some other flexibility.
+  variable_set('drupalife_store_installation_settings', '');
+
+  // Enable themes.
+  $default_theme = 'drupalife_store';
+  $admin_theme = 'seven';
+  variable_set('theme_default', $default_theme);
+  variable_set('admin_theme', $admin_theme);
+
+  db_update('system')
+    ->fields(array(
+      'status' => 1,
+    ))
+    ->condition('name', $default_theme)
+    ->condition('type', 'theme')
+    ->execute();
+
+  // Disable Drupal default theme.
+  db_update('system')
+    ->fields(array(
+      'status' => 0,
+    ))
+    ->condition('name', 'bartik')
+    ->condition('type', 'theme')
+    ->execute();
+
+  // Activate admin theme when editing a node.
+  variable_set('node_admin_theme', '1');
+
+  $blocks = array(
+    array(
+      'module' => 'system',
+      'delta' => 'main',
+      'theme' => $default_theme,
+      'status' => 1,
+      'weight' => 0,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'user',
+      'delta' => 'login',
+      'theme' => $default_theme,
+      'status' => 1,
+      'weight' => 0,
+      'region' => 'sidebar_first',
+      'pages' => 'search',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'user-menu',
+      'theme' => $default_theme,
+      'status' => 1,
+      'weight' => 0,
+      'region' => 'sidebar_first',
+      'pages' => 'search',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'help',
+      'theme' => $default_theme,
+      'status' => 1,
+      'weight' => -10,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'nivo_slider',
+      'delta' => 'nivo_slider',
+      'theme' => $default_theme,
+      'status' => 1,
+      'weight' => 0,
+      'region' => 'content_front',
+      'pages' => '',
+      'cache' => 4,
+    ),
+    array(
+      'module' => 'views',
+      'delta' => 'news-frontpage',
+      'theme' => $default_theme,
+      'status' => 1,
+      'weight' => 1,
+      'region' => 'content_front',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'main',
+      'theme' => $admin_theme,
+      'status' => 1,
+      'weight' => 0,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'help',
+      'theme' => $admin_theme,
+      'status' => 1,
+      'weight' => 0,
+      'region' => 'help',
+      'pages' => '',
+      'cache' => -1,
+    ),
+  );
+  // drop system / user blocks to ensure correct building
+  db_delete('block')->condition('module', 'system')->execute();
+  db_delete('block')->condition('module', 'user')->execute();
+  // add in our blocks defined above
+  $query = db_insert('block')->fields(array(
+    'module',
+    'delta',
+    'theme',
+    'status',
+    'weight',
+    'region',
+    'pages',
+    'cache'
+  ));
+  foreach ($blocks as $block) {
+    $query->values($block);
+  }
+  $query->execute();
+
+  // Create a default role for site administrators, with all available permissions assigned.
+  $admin_role = new stdClass();
+  $admin_role->name = 'administrator';
+  $admin_role->weight = 10;
+  user_role_save($admin_role);
+  user_role_grant_permissions($admin_role->rid, array_keys(module_invoke_all('permission')));
+
+  // Set this as the administrator role.
+  variable_set('user_admin_role', $admin_role->rid);
+
+  // Assign user 1 the "administrator" role.
+  db_insert('users_roles')
+    ->fields(array('uid' => 1, 'rid' => $admin_role->rid))
+    ->execute();
+
+  // Set default image for taxonomy category term.
+  $image_file = DRUPAL_ROOT . '/profiles/drupalife_store/themes/drupalife_store/noimage.png';
+  $image = file_get_contents($image_file);
+  $file = file_save_data($image, 'public://noimage.png', FILE_EXISTS_REPLACE);
+  // Change default image in field settings.
+  $result = db_select('field_config_instance', 'c')
+    ->fields('c')
+    ->condition('c.field_name', 'field_shop_category_image')
+    ->execute()
+    ->fetchAssoc();
+  $new_data = unserialize($result['data']);
+  $new_data['settings']['default_image'] = $file->fid;
+  db_update('field_config_instance')
+    ->fields(array(
+      'data' => serialize($new_data),
+    ))
+    ->condition('field_name', 'field_shop_category_image')
+    ->execute();
+
+  // Commerce order (addressfield) settings.
+  $addressfield = db_select('field_config_instance', 'c')
+    ->fields('c')
+    ->condition('c.field_name', 'commerce_customer_address')
+    ->execute()
+    ->fetchAssoc();
+  $addressfield_new = unserialize($addressfield['data']);
+  $addressfield_new['widget']['active'] = 1;
+  $addressfield_new['widget']['settings']['format_handlers'] = array(
+    'address' => 'address',
+    'address-hide-country' => 'address-hide-country',
+    'organisation' => 'organisation',
+    'name-oneline' => 'name-oneline',
+    'name-full' => 0,
+  );
+  db_update('field_config_instance')
+    ->fields(array(
+      'data' => serialize($addressfield_new),
+    ))
+    ->condition('field_name', 'commerce_customer_address')
+    ->execute();
+
+  // Set default pathauto patterns.
+  variable_set('pathauto_node_news_pattern', 'news/[node:nid]-[node:title]');
+  variable_set('pathauto_node_page_pattern', '[node:title]');
+  variable_set('pathauto_taxonomy_term_shop_category_pattern', 'catalog/[term:parents:join-path]/[term:name]');
+  variable_set('pathauto_node_product_display_pattern', 'catalog/[node:field-product-display-category:parents:join-path]/[node:field-product-display-category:name]/[node:title]');
+  variable_set('pathauto_transliterate', '1');
+
+  // Set default settings to Nivo Slider.
+  variable_set('nivo_slider_image_style', 1);
+  variable_set('nivo_slider_image_style_slide', 'slider');
+  variable_set('nivo_slider_theme', 'default');
+
+  // Set jQuery version to 1.8
+  variable_set('jquery_update_jquery_version', '1.7');
+
+  // Set default values to Path Breadcrubms.
+  variable_set('path_breadcrumbs_rich_snippets', '1');
+  // Taxonomy display.
+  $query = db_insert('taxonomy_display')
+    ->fields(array(
+      'machine_name' => 'shop_category',
+      'term_display_plugin' => 'TaxonomyDisplayTermDisplayHandlerCore',
+      'term_display_options' => 'N;',
+      'associated_display_plugin' => 'TaxonomyDisplayAssociatedDisplayHandlerViews',
+      'associated_display_options' => 'a:2:{s:4:"view";s:4:"shop";s:7:"display";s:4:"page";}',
+      'add_feed' => '1',
+      'breadcrumb_display_plugin' => 'TaxonomyDisplayBreadcrumbDisplayHandlerCore',
+      'breadcrumb_display_options' => 'N;',
+    ))
+    ->execute();
+
+  // Display settings for all content types. We do it cuz display suite with
+  // features can't handle all data. They move display types, but not save
+  // what to show, and how to show data for each content type and display.
+  variable_set('field_bundle_settings_commerce_product__product', unserialize('a:2:{s:10:"view_modes";a:12:{s:9:"line_item";a:1:{s:15:"custom_settings";b:1;}s:11:"node_teaser";a:1:{s:15:"custom_settings";b:1;}s:4:"full";a:1:{s:15:"custom_settings";b:0;}s:5:"token";a:1:{s:15:"custom_settings";b:0;}s:26:"commerce_line_item_display";a:1:{s:15:"custom_settings";b:0;}s:24:"commerce_line_item_token";a:1:{s:15:"custom_settings";b:0;}s:9:"node_full";a:1:{s:15:"custom_settings";b:1;}s:8:"node_rss";a:1:{s:15:"custom_settings";b:0;}s:17:"node_search_index";a:1:{s:15:"custom_settings";b:0;}s:18:"node_search_result";a:1:{s:15:"custom_settings";b:1;}s:10:"node_token";a:1:{s:15:"custom_settings";b:0;}s:13:"node_revision";a:1:{s:15:"custom_settings";b:0;}}s:12:"extra_fields";a:2:{s:4:"form";a:3:{s:3:"sku";a:1:{s:6:"weight";s:3:"-10";}s:5:"title";a:1:{s:6:"weight";s:2:"-5";}s:6:"status";a:1:{s:6:"weight";s:2:"35";}}s:7:"display";a:3:{s:3:"sku";a:5:{s:7:"default";a:2:{s:6:"weight";s:3:"-10";s:7:"visible";b:1;}s:9:"line_item";a:2:{s:6:"weight";s:1:"0";s:7:"visible";b:1;}s:11:"node_teaser";a:2:{s:6:"weight";s:1:"0";s:7:"visible";b:1;}s:9:"node_full";a:2:{s:6:"weight";s:3:"-10";s:7:"visible";b:1;}s:18:"node_search_result";a:2:{s:6:"weight";s:3:"-10";s:7:"visible";b:1;}}s:5:"title";a:5:{s:7:"default";a:2:{s:6:"weight";s:2:"-5";s:7:"visible";b:1;}s:9:"line_item";a:2:{s:6:"weight";s:1:"1";s:7:"visible";b:1;}s:11:"node_teaser";a:2:{s:6:"weight";s:1:"1";s:7:"visible";b:1;}s:9:"node_full";a:2:{s:6:"weight";s:2:"-5";s:7:"visible";b:1;}s:18:"node_search_result";a:2:{s:6:"weight";s:2:"-5";s:7:"visible";b:1;}}s:6:"status";a:5:{s:7:"default";a:2:{s:6:"weight";s:1:"5";s:7:"visible";b:1;}s:9:"line_item";a:2:{s:6:"weight";s:1:"3";s:7:"visible";b:1;}s:11:"node_teaser";a:2:{s:6:"weight";s:1:"3";s:7:"visible";b:1;}s:9:"node_full";a:2:{s:6:"weight";s:1:"5";s:7:"visible";b:1;}s:18:"node_search_result";a:2:{s:6:"weight";s:1:"5";s:7:"visible";b:1;}}}}}'));
+  variable_set('field_bundle_settings_node__news', unserialize('a:2:{s:10:"view_modes";a:8:{s:6:"teaser";a:1:{s:15:"custom_settings";b:1;}s:12:"search_index";a:1:{s:15:"custom_settings";b:0;}s:4:"full";a:1:{s:15:"custom_settings";b:0;}s:3:"rss";a:1:{s:15:"custom_settings";b:0;}s:13:"search_result";a:1:{s:15:"custom_settings";b:1;}s:5:"token";a:1:{s:15:"custom_settings";b:0;}s:8:"revision";a:1:{s:15:"custom_settings";b:0;}s:9:"frontpage";a:1:{s:15:"custom_settings";b:1;}}s:12:"extra_fields";a:2:{s:4:"form";a:1:{s:5:"title";a:1:{s:6:"weight";s:1:"0";}}s:7:"display";a:0:{}}}'));
+  variable_set('field_bundle_settings_node__page', unserialize('a:2:{s:10:"view_modes";a:7:{s:6:"teaser";a:1:{s:15:"custom_settings";b:1;}s:13:"search_result";a:1:{s:15:"custom_settings";b:1;}s:4:"full";a:1:{s:15:"custom_settings";b:0;}s:3:"rss";a:1:{s:15:"custom_settings";b:0;}s:12:"search_index";a:1:{s:15:"custom_settings";b:0;}s:5:"token";a:1:{s:15:"custom_settings";b:0;}s:8:"revision";a:1:{s:15:"custom_settings";b:0;}}s:12:"extra_fields";a:2:{s:4:"form";a:1:{s:5:"title";a:1:{s:6:"weight";s:2:"-5";}}s:7:"display";a:0:{}}}'));
+  variable_set('field_bundle_settings_node__product_display', unserialize('a:2:{s:10:"view_modes";a:7:{s:6:"teaser";a:1:{s:15:"custom_settings";b:1;}s:4:"full";a:1:{s:15:"custom_settings";b:0;}s:3:"rss";a:1:{s:15:"custom_settings";b:0;}s:12:"search_index";a:1:{s:15:"custom_settings";b:0;}s:13:"search_result";a:1:{s:15:"custom_settings";b:1;}s:5:"token";a:1:{s:15:"custom_settings";b:0;}s:8:"revision";a:1:{s:15:"custom_settings";b:0;}}s:12:"extra_fields";a:2:{s:4:"form";a:1:{s:5:"title";a:1:{s:6:"weight";s:2:"-5";}}s:7:"display";a:5:{s:11:"product:sku";a:3:{s:7:"default";a:2:{s:6:"weight";s:3:"-10";s:7:"visible";b:0;}s:6:"teaser";a:2:{s:6:"weight";s:1:"4";s:7:"visible";b:0;}s:13:"search_result";a:2:{s:6:"weight";s:3:"-10";s:7:"visible";b:0;}}s:13:"product:title";a:3:{s:7:"default";a:2:{s:6:"weight";s:2:"-5";s:7:"visible";b:0;}s:6:"teaser";a:2:{s:6:"weight";s:1:"5";s:7:"visible";b:0;}s:13:"search_result";a:2:{s:6:"weight";s:2:"-5";s:7:"visible";b:0;}}s:14:"product:status";a:3:{s:7:"default";a:2:{s:6:"weight";s:1:"5";s:7:"visible";b:0;}s:6:"teaser";a:2:{s:6:"weight";s:2:"14";s:7:"visible";b:0;}s:13:"search_result";a:2:{s:6:"weight";s:1:"5";s:7:"visible";b:0;}}s:22:"product:commerce_price";a:3:{s:7:"default";a:2:{s:6:"weight";s:1:"0";s:7:"visible";b:1;}s:6:"teaser";a:2:{s:6:"weight";s:1:"1";s:7:"visible";b:1;}s:13:"search_result";a:2:{s:6:"weight";s:1:"0";s:7:"visible";b:1;}}s:27:"product:field_product_photo";a:3:{s:7:"default";a:2:{s:6:"weight";s:2:"36";s:7:"visible";b:1;}s:6:"teaser";a:2:{s:6:"weight";s:1:"2";s:7:"visible";b:1;}s:13:"search_result";a:2:{s:6:"weight";s:2:"36";s:7:"visible";b:1;}}}}}'));
+  variable_set('field_bundle_settings_taxonomy_term__shop_category', unserialize('a:2:{s:10:"view_modes";a:3:{s:11:"term_teaser";a:1:{s:15:"custom_settings";b:1;}s:4:"full";a:1:{s:15:"custom_settings";b:0;}s:5:"token";a:1:{s:15:"custom_settings";b:0;}}s:12:"extra_fields";a:2:{s:4:"form";a:0:{}s:7:"display";a:1:{s:11:"description";a:2:{s:7:"default";a:2:{s:6:"weight";s:1:"0";s:7:"visible";b:1;}s:11:"term_teaser";a:2:{s:6:"weight";s:1:"0";s:7:"visible";b:1;}}}}}'));
+
+  // Set default settings to our theme. This will disable 'rebuild theme
+  // registry on every page' and some other things.
+  variable_set('theme_drupalife_store_settings', unserialize('a:24:{s:11:"toggle_logo";i:1;s:11:"toggle_name";i:1;s:13:"toggle_slogan";i:1;s:24:"toggle_node_user_picture";i:1;s:27:"toggle_comment_user_picture";i:1;s:14:"toggle_favicon";i:1;s:16:"toggle_main_menu";i:1;s:21:"toggle_secondary_menu";i:1;s:12:"default_logo";i:1;s:9:"logo_path";s:0:"";s:11:"logo_upload";s:0:"";s:15:"default_favicon";i:1;s:12:"favicon_path";s:0:"";s:14:"favicon_upload";s:0:"";s:14:"zen_breadcrumb";s:3:"yes";s:24:"zen_breadcrumb_separator";s:5:" › ";s:19:"zen_breadcrumb_home";i:1;s:23:"zen_breadcrumb_trailing";i:0;s:20:"zen_breadcrumb_title";i:0;s:20:"zen_skip_link_anchor";s:9:"main-menu";s:18:"zen_skip_link_text";s:18:"Jump to navigation";s:22:"zen_html5_respond_meta";a:3:{s:7:"respond";s:7:"respond";s:5:"html5";s:5:"html5";s:4:"meta";s:4:"meta";}s:20:"zen_rebuild_registry";i:0;s:14:"zen_wireframes";i:0;}'));
+
+  // Colorbox settings.
+  variable_set('colorbox_load', 1);
+  variable_set('colorbox_text_close', $t('Close'));
+  variable_set('colorbox_text_current', $t('{current} from {total}'));
+  variable_set('colorbox_text_next', $t('Next »'));
+  variable_set('colorbox_text_previous', $t('« Previous'));
+
+  // Metatag default settings.
+  $metatag_config = array(
+    'title' => array(
+      'value' => $t('[node:title] - Новости - [site:name]'),
+    ),
+    'image_src' => array(
+      'value' => '[node:field_promo_image]',
+    ),
+  );
+  db_insert('metatag_config')
+    ->fields(array(
+      'cid' => 1,
+      'instance' => 'node:news',
+      'config' => serialize($metatag_config)
+    ))
+    ->execute();
+
+  $metatag_config = array(
+    'title' => array(
+      'value' => $t('[node:title] - Catalog - [site:name]'),
+    ),
+  );
+  db_insert('metatag_config')
+    ->fields(array(
+      'cid' => 2,
+      'instance' => 'node:product_display',
+      'config' => serialize($metatag_config),
+    ))
+    ->execute();
+
+  db_insert('metatag_config')
+    ->fields(array(
+      'cid' => 3,
+      'instance' => 'global',
+      'config' => 'a:16:{s:5:"title";a:1:{s:5:"value";s:34:"[current-page:title] - [site:name]";}s:11:"description";a:1:{s:5:"value";s:0:"";}s:8:"abstract";a:1:{s:5:"value";s:0:"";}s:8:"keywords";a:1:{s:5:"value";s:0:"";}s:6:"robots";a:1:{s:5:"value";a:10:{s:5:"index";i:0;s:6:"follow";i:0;s:7:"noindex";i:0;s:8:"nofollow";i:0;s:9:"noarchive";i:0;s:9:"nosnippet";i:0;s:5:"noodp";i:0;s:6:"noydir";i:0;s:12:"noimageindex";i:0;s:11:"notranslate";i:0;}}s:13:"news_keywords";a:1:{s:5:"value";s:0:"";}s:8:"standout";a:1:{s:5:"value";s:0:"";}s:9:"generator";a:1:{s:5:"value";s:28:"Drupal 7 (http://drupal.org)";}s:9:"copyright";a:1:{s:5:"value";s:0:"";}s:9:"image_src";a:1:{s:5:"value";s:0:"";}s:9:"canonical";a:1:{s:5:"value";s:27:"[current-page:url:absolute]";}s:9:"shortlink";a:1:{s:5:"value";s:28:"[current-page:url:unaliased]";}s:9:"publisher";a:1:{s:5:"value";s:0:"";}s:6:"author";a:1:{s:5:"value";s:0:"";}s:15:"original-source";a:1:{s:5:"value";s:0:"";}s:13:"revisit-after";a:2:{s:5:"value";s:0:"";s:6:"period";s:0:"";}}'
+    ))
+    ->execute();
+
+  $metatag_config = array(
+    'title' => array(
+      'value' => $t('[term:name] - Catalog - [site:name]'),
+    ),
+    'image_src' => array(
+      'value' => '[term:field_shop_category_image]',
+    ),
+  );
+  db_insert('metatag_config')
+    ->fields(array(
+      'cid' => 4,
+      'instance' => 'taxonomy_term:shop_category',
+      'config' => serialize($metatag_config),
+    ))
+    ->execute();
+
+  $metatag_config = array(
+    'title' => array(
+      'value' => '[node:title] - [site:name]',
+    ),
+    'description' => array(
+      'value' => '[node:summary]',
+    ),
+  );
+  db_insert('metatag_config')
+    ->fields(array(
+      'cid' => 5,
+      'instance' => 'node',
+      'config' => serialize($metatag_config),
+    ))
+    ->execute();
+
+  // Path Breadcrumbs default settings.
+  variable_set('path_breadcrumbs_home_link_title', $t('Home'));
+  variable_set('path_breadcrumbs_hide_single_breadcrumb', 1);
+
+  $breadcrumbs_settings = array(
+    'titles' => array(
+      $t('Catalog'),
+      '%nid:field-product-display-category:pb-join:name',
+    ),
+    'paths' => array(
+      'catalog',
+      '%nid:field-product-display-category:pb-join:url',
+    ),
+    'home' => 1,
+    'translatable' => 0,
+    'arguments' => array(
+      'nid' => array(
+        'position' => 1,
+        'argument' => 'entity_id:node',
+        'settings' => array(
+          'identifier' => 'nid',
+        ),
+      ),
+    ),
+    'access' => array(
+      'plugins' => array(
+        '0' => array(
+          'name' => 'node_type',
+          'settings' => array(
+            'type' => array(
+              'product_display' => 'product_display',
+            ),
+          ),
+          'context' => 'nid',
+          'not' => FALSE,
+        ),
+      ),
+      'logic' => 'and',
+    ),
+  );
+  db_insert('path_breadcrumbs')
+    ->fields(array(
+      'path_id' => 1,
+      'machine_name' => 'product',
+      'name' => 'Product',
+      'path' => 'node/%nid',
+      'data' => serialize($breadcrumbs_settings),
+      'weight' => 0,
+    ))
+    ->execute();
+
+  $breadcrumbs_settings = array(
+    'titles' => array(
+      $t('Catalog'),
+      '%tid:pb-join:name',
+    ),
+    'paths' => array(
+      'catalog',
+      '%tid:pb-join:url',
+    ),
+    'home' => 1,
+    'translatable' => 0,
+    'arguments' => array(
+      'tid' => array(
+        'position' => 2,
+        'argument' => 'term',
+        'settings' => array(
+          'input_form' => 'tid',
+          'identifier' => 'tid',
+        ),
+        'vids' => array(
+          '1' => 0,
+        ),
+        'breadcrumb' => 0,
+        'transform' => 0,
+      ),
+    ),
+    'access' => array(
+      'plugins' => array(
+        '0' => array(
+          'name' => 'term_vocabulary',
+          'settings' => array(
+            'machine_name' => array(
+              'shop_category' => 'shop_category',
+            ),
+          ),
+          'context' => 'tid',
+          'not' => FALSE,
+        ),
+      ),
+      'logic' => 'and',
+    ),
+  );
+  db_insert('path_breadcrumbs')
+    ->fields(array(
+      'path_id' => 2,
+      'machine_name' => 'catalog',
+      'name' => 'Catalog',
+      'path' => 'taxonomy/term/%tid',
+      'data' => serialize($breadcrumbs_settings),
+      'weight' => 0,
+    ))
+    ->execute();
+
+  $breadcrumbs_settings = array(
+    'titles' => array(
+      $t('News'),
+    ),
+    'paths' => array(
+      'news',
+    ),
+    'home' => 1,
+    'translatable' => 0,
+    'arguments' => array(
+      'nid' => array(
+        'position' => 1,
+        'argument' => 'entity_id:node',
+        'settings' => array(
+          'identifier' => 'nid',
+        ),
+      ),
+    ),
+    'access' => array(
+      'plugins' => array(
+        '0' => array(
+          'name' => 'node_type',
+          'settings' => array(
+            'type' => array(
+              'news' => 'news',
+            ),
+          ),
+          'context' => 'nid',
+          'not' => FALSE,
+        ),
+      ),
+      'logic' => 'and',
+    ),
+  );
+  db_insert('path_breadcrumbs')
+    ->fields(array(
+      'path_id' => 3,
+      'machine_name' => 'news',
+      'name' => 'News',
+      'path' => 'node/%nid',
+      'data' => serialize($breadcrumbs_settings),
+      'weight' => 0,
+    ))
+    ->execute();
+
+  // Disable comment title for news comments.
+  variable_set('comment_subject_field_news', 0);
+
+  // Setup superfish module.
+  variable_set('superfish_number', 1);
+  variable_set('superfish_name_1', $t('Main Menu'));
+  variable_set('superfish_style_1', 'none');
+  variable_set('superfish_itemcounter_1', 0);
+  variable_set('superfish_itemcount_1', 0);
+  variable_set('superfish_itemdepth_1', 0);
+  variable_set('superfish_zebra_1', 0);
+  variable_set('superfish_firstlast_1', 0);
+
+  _block_rehash('drupalife_store');
+  db_update('block')
+    ->fields(array(
+      'status' => 1,
+      'weight' => -11,
+      'region' => 'navigation',
+      'title' => '<none>',
+    ))
+    ->condition('module', 'superfish')
+    ->condition('delta', '1')
+    ->condition('theme', 'drupalife_store')
+    ->execute();
+
+  // Set default value for search type.
+  variable_set('drupalife_store_selected_search', 'default');
+
+  // User pictures (avatars).
+  variable_set('user_pictures', 1);
+  variable_set('user_picture_default', 'profiles/drupalife_store/themes/drupalife_store/noavatar.png');
+  variable_set('user_picture_dimensions', '150x150');
+  variable_set('user_picture_file_size', '500');
+  variable_set('user_picture_path', 'pictures');
+  variable_set('user_picture_style', 'thumbnail');
+
+  // Enable registration without approval.
+  variable_set('user_register', 1);
+
+  // Disable comment adding for product display.
+  variable_set('comment_product_display', '1');
+
+  // Work with permissions.
+  user_role_grant_permissions(DRUPAL_ANONYMOUS_RID, array(
+    'access checkout',
+    'access comments',
+    'access content',
+    'create commerce_order entities',
+    'post comments',
+    'search content',
+    'view any commerce_product entity'
+  ));
+  user_role_grant_permissions(DRUPAL_AUTHENTICATED_RID, array(
+    'access checkout',
+    'access comments',
+    'access content',
+    'create commerce_order entities',
+    'post comments',
+    'search content',
+    'skip comment approval',
+    'view any commerce_product entity',
+    'view own commerce_order entities'
+  ));
+
+  // Update the menu router information.
+  menu_rebuild();
+
+  // revert features to ensure they are all installed
+  $features = array(
+    'drupalife_store_core_shop',
+    'drupalife_store_contact',
+    'drupalife_store_news',
+    'drupalife_store_pages',
+    'drupalife_store_slider'
+  );
+
+  // Add menu entries.
+  $menus = array(
+    array(
+      'menu_name' => 'main-menu',
+      'link_path' => '<front>',
+      'router_path' => 0,
+      'link_title' => $t('Front'),
+      'options' => 'a:1:{s:10:"attributes";a:1:{s:5:"title";s:0:"";}}',
+      'module' => 'menu',
+      'external' => 1,
+      'weight' => 0,
+      'depth' => 1,
+      'customized' => 1,
+      'p1' => 686,
+    ),
+    array(
+      'menu_name' => 'main-menu',
+      'link_path' => 'eform/submit/contact',
+      'router_path' => 'eform/submit/%',
+      'link_title' => $t('Contacts'),
+      'options' => 'a:1:{s:10:"attributes";a:1:{s:5:"title";s:0:"";}}',
+      'module' => 'menu',
+      'external' => 1,
+      'weight' => 50,
+      'depth' => 1,
+      'customized' => 1,
+      'p1' => 687,
+    ),
+  );
+  $query = db_insert('menu_links')->fields(array(
+    'menu_name',
+    'link_path',
+    'router_path',
+    'link_title',
+    'options',
+    'module',
+    'external',
+    'weight',
+    'depth',
+    'customized',
+    'p1'
+  ));
+  foreach ($menus as $menu) {
+    $query->values($menu);
+  }
+  $query->execute();
+
+  features_revert($features);
+  // ignore any rebuild messages
+  node_access_needs_rebuild(FALSE);
+  // ignore any other install messages
+  drupal_get_messages();
+}
+
+/**
+ * Set theme for installation process.
+ */
+function installation_profile_set_theme($theme) {
+  if ($GLOBALS['theme'] != $theme) {
+    unset($GLOBALS['theme']);
+
+    drupal_static_reset();
+    $GLOBALS['conf']['maintenance_theme'] = $theme;
+    _drupal_maintenance_theme();
+  }
+}
+
+/**
+ * Implements hook_install_tasks().
+ */
+function drupalife_store_install_tasks(&$install_state) {
+  $advanced_settings_batch_ready = variable_get('drupalife_store_install_advanced_settings_batch_ready', FALSE);
+
+  $tasks['drupalife_store_advanced_settings_form'] = array(
+    'display_name' => st('Advanced settings'),
+    'display' => TRUE,
+    'type' => 'form',
+    'run' => INSTALL_TASK_RUN_IF_NOT_COMPLETED,
+  );
+
+  $tasks['drupalife_store_advanced_settings_batch'] = array(
+    'display' => FALSE,
+    'type' => 'batch',
+    'run' => $advanced_settings_batch_ready ? INSTALL_TASK_RUN_IF_NOT_COMPLETED : INSTALL_TASK_SKIP,
+  );
+
+  return $tasks;
+}
+
+/**
+ * Advanced settings form.
+ */
+function drupalife_store_advanced_settings_form() {
+  global $language;
+
+  $form['information'] = array(
+    '#weight' => 0,
+    '#markup' => '<p>These settings allow you to add new functionality to the site. This operation is performed only once, at the time of installation, in the future you will have to configure these capabilities themselves.</p>',
+  );
+
+  // Search.
+  $form['search'] = array(
+    '#type' => 'fieldset',
+    '#title' => st('Configure search'),
+    '#description' => st('By default it will use the standard Drupal search. In this section you can search for an alternative.'),
+    '#weight' => 1,
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+
+  $form['search']['search_type'] = array(
+    '#type' => 'radios',
+    '#title' => st('Search type'),
+    '#default_value' => 0,
+    '#options' => array(
+      0 => st('Standart Drupal search'),
+      1 => st('Standart Drupal search + DisplaySuite Search'),
+      2 => st('Search API + Facet API'),
+    ),
+    '#description' => st('If you need search other the default Drupal Search, you can chose one here.'),
+  );
+
+  // WYSIWYG Editors.
+  $form['content_editing'] = array(
+    '#type' => 'fieldset',
+    '#title' => st('Content editing'),
+    '#description' => st('In this section you can chose WYSIWYG editor if you need it.'),
+    '#weight' => 2,
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+
+  $form['content_editing']['wysiwyg_editor'] = array(
+    '#type' => 'radios',
+    '#title' => st('WYSIWYG editor'),
+    '#default_value' => 0,
+    '#options' => array(
+      0 => st('Do not install WYSIWYG Editors'),
+      1 => st('CKEditor'),
+    ),
+  );
+
+  // Mail system.
+  $form['mail_system'] = array(
+    '#type' => 'fieldset',
+    '#title' => st('Mail system'),
+    '#description' => st('Here you can change default mail system to another one.'),
+    '#weight' => 3,
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+
+  $form['mail_system']['mail_module'] = array(
+    '#type' => 'radios',
+    '#title' => st('Mail system'),
+    '#default_value' => 0,
+    '#options' => array(
+      0 => st('Use default mail system'),
+      1 => st('MimeMail (html mail)'),
+    ),
+  );
+
+  // Commerce settings.
+  $form['commerce_settings'] = array(
+    '#type' => 'fieldset',
+    '#title' => st('Commerce settings'),
+    '#description' => st('Here you can change store settings.'),
+    '#weight' => 4,
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+
+  $currency_list = array();
+  foreach (commerce_currencies(FALSE, TRUE) as $currency_code => $currency_info) {
+    $currency_list[$currency_code] = $currency_code . ' - ' . $currency_info['name'];
+  }
+  $form['commerce_settings']['default_currency'] = array(
+    '#type' => 'select',
+    '#title' => t('Default currency'),
+    '#options' => $currency_list,
+    '#default_value' => $language->language == 'ru' ? 'RUB' : 'USD',
+    '#description' => t('Store default currency. You may change it in the future.'),
+  );
+
+  $form['commerce_settings']['default_country'] = array(
+    '#type' => 'select',
+    '#title' => t('Default country for orders'),
+    '#options' => country_get_list(),
+    '#default_value' => $language->language == 'ru' ? 'RU' : 'US',
+    '#description' => t('Default country for orders. You may change it in the future.'),
+  );
+
+  $form['commerce_settings']['hide_state_field'] = array(
+    '#type' => 'checkbox',
+    '#title' => st('Hide State field in checkout'),
+    '#default_value' => $language->language == 'ru' ? 1 : 0,
+    '#description' => st('This option hide the State field. For ex., Russia don\'t need this field, so we can hide it.')
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => st('Submit'),
+    '#weight' => 15,
+    '#submit' => array('drupalife_store_advanced_settings_form_submit'),
+  );
+
+  return $form;
+}
+
+/**
+ * Submition of advanced settings form.
+ */
+function drupalife_store_advanced_settings_form_submit($form, $form_state) {
+  // Save selected options.
+  $installation_settings = variable_get('drupalife_store_installation_settings', '');
+  foreach ($form_state['values'] as $value_name => $value) {
+    $installation_settings[$value_name] = $value;
+  }
+  variable_set('drupalife_store_installation_settings', $installation_settings);
+
+  $todo_list = array();
+
+  // Search settings.
+  if ($form_state['values']['search_type'] == 1) {
+    $todo_list[] = array('drupalife_store_install_displaysuite_search', array());
+  }
+  else {
+    if ($form_state['values']['search_type'] == 2) {
+      $todo_list[] = array('drupalife_store_install_search_api', array());
+    }
+  }
+
+  // WYSIWYG editor.
+  if ($form_state['values']['wysiwyg_editor'] == 1) {
+    $todo_list[] = array('drupalife_store_install_ckeditor', array());
+  }
+
+  // Mail system.
+  if ($form_state['values']['mail_module'] == 1) {
+    $todo_list[] = array('drupalife_store_install_mimemail', array());
+  }
+
+  // Hide state field.
+  if ($form_state['values']['hide_state_field'] == 1) {
+    $todo_list[] = array('drupalife_store_install_hide_state_field', array());
+  }
+
+  // Default currency.
+  variable_set('commerce_default_currency', $form_state['values']['default_currency']);
+
+  // Default country.
+  $addressfield = db_select('field_config_instance', 'c')
+    ->fields('c')
+    ->condition('c.field_name', 'commerce_customer_address')
+    ->execute()
+    ->fetchAssoc();
+  $addressfield_new = unserialize($addressfield['data']);
+  $addressfield_new['widget']['settings']['available_countries'] = array(
+    $form_state['values']['default_country'] => $form_state['values']['default_country'],
+  );
+  db_update('field_config_instance')
+    ->fields(array(
+      'data' => serialize($addressfield_new),
+    ))
+    ->condition('field_name', 'commerce_customer_address')
+    ->execute();
+
+  if (!empty($todo_list)) {
+    variable_set('drupalife_store_install_advanced_settings', $todo_list);
+    variable_set('drupalife_store_install_advanced_settings_batch_ready', TRUE);
+  }
+}
+
+/**
+ * Batch operation for advanced settings form.
+ */
+function drupalife_store_advanced_settings_batch() {
+  $batch = array(
+    'title' => st('Advanced settings install'),
+    'operations' => variable_get('drupalife_store_install_advanced_settings'),
+  );
+
+  return $batch;
+}
+
+/**
+ * Install DisplaySuite search and configure it.
+ */
+function drupalife_store_install_displaysuite_search() {
+  // Enable module.
+  module_enable(array('ds_search'));
+
+  // Set up our values.
+  variable_set('ds_search_file_render', unserialize('i:1;'));
+  variable_set('ds_search_group_by_type', unserialize('i:0;'));
+  variable_set('ds_search_group_by_type_other', unserialize('s:5:"Other";'));
+  variable_set('ds_search_group_by_type_other_wrapper', unserialize('s:8:"fieldset";'));
+  variable_set('ds_search_group_by_type_settings', unserialize('a:3:{s:4:"news";a:4:{s:6:"status";i:1;s:5:"label";s:14:"Новости";s:7:"wrapper";s:8:"fieldset";s:6:"weight";s:1:"0";}s:15:"product_display";a:4:{s:6:"status";i:1;s:5:"label";s:12:"Товары";s:7:"wrapper";s:8:"fieldset";s:6:"weight";s:1:"0";}s:4:"page";a:4:{s:6:"status";i:1;s:5:"label";s:16:"Страницы";s:7:"wrapper";s:8:"fieldset";s:6:"weight";s:1:"0";}}'));
+  variable_set('ds_search_highlight', unserialize('i:1;'));
+  variable_set('ds_search_highlight_selector', unserialize('s:24:".view-mode-search_result";'));
+  variable_set('ds_search_language', unserialize('i:0;'));
+  variable_set('ds_search_node_form_alter', unserialize('i:0;'));
+  variable_set('ds_search_node_limit', unserialize('s:2:"10";'));
+  variable_set('ds_search_path', unserialize('s:7:"content";'));
+  variable_set('ds_search_show_title', unserialize('i:1;'));
+  variable_set('ds_search_type', unserialize('s:4:"node";'));
+  variable_set('ds_search_variables', unserialize('s:4:"none";'));
+  variable_set('ds_search_view_mode', unserialize('s:13:"search_result";'));
+  variable_set('search_active_modules', unserialize('a:3:{s:9:"ds_search";s:9:"ds_search";s:4:"node";i:0;s:4:"user";i:0;}'));
+  variable_set('search_default_module', unserialize('s:9:"ds_search";'));
+}
+
+/**
+ * Install CKEditor and configure it.
+ */
+function drupalife_store_install_ckeditor() {
+  // Enable CKEditor.
+  module_enable(array('ckeditor'));
+}
+
+/**
+ * Install MimeMail module and configure it,
+ */
+function drupalife_store_install_mimemail() {
+  // Enable modules.
+  module_enable(array(
+    'mailsystem',
+    'mimemail',
+  ));
+
+  // Import config.
+  variable_set('mail_system', unserialize('a:2:{s:14:"default-system";s:14:"MimeMailSystem";s:8:"mimemail";s:14:"MimeMailSystem";}'));
+  variable_set('mimemail_engine', 'mimemail');
+  variable_set('mimemail_format', 'full_html');
+  variable_set('mimemail_incoming', 0);
+  variable_set('mimemail_linkonly', 0);
+  variable_set('mimemail_simple_address', 0);
+  variable_set('mimemail_sitestyle', 0);
+  variable_set('mimemail_textonly', 0);
+}
+
+/**
+ * Install Search API + Facet API and configure it to commerce.
+ */
+function drupalife_store_install_search_api() {
+  $t = get_t();
+
+  // Disable core search module.
+  db_update('system')
+    ->fields(array(
+      'status' => 0,
+    ))
+    ->condition('name', 'search')
+    ->execute();
+
+  // Enable modules in that priority, cuz Search API + Features + Commerce DB
+  // have some problems.
+  module_enable(array('search_api_db'));
+  module_enable(array('search_api_facetapi'));
+  module_enable(array('search_api_ranges','search_api_views'));
+  module_enable(array('commerce_search_api'));
+  module_enable(array('drupalife_store_search_api'));
+
+  // Change settings.
+  $index_entity = entity_load('search_api_index', array(1));
+  $index_settings = $index_entity['1'];
+  $index_settings->options['data_alter_callbacks']['search_api_alter_add_hierarchy'] = array(
+    'status' => 1,
+    'weight' => 0,
+    'settings' => array(
+      'fields' => array(
+        'field_product_display_category:parent' => 'field_product_display_category:parent',
+        'field_product_display_category:parents_all' => 'field_product_display_category:parents_all',
+      ),
+    ),
+  );
+  $index_settings->options['fields']['title'] = array(
+    'type' => 'string',
+    'boost' => '2.0',
+  );
+  $index_settings->options['fields']['body:value'] = array(
+    'type' => 'text',
+  );
+  $index_settings->options['processors'] = array(
+    'search_api_case_ignore' => array(
+      'status' => 1,
+      'weight' => 0,
+      'settings' => array(
+        'fields' => array(
+          'search_api_aggregation_1' => TRUE,
+          'search_api_aggregation_2' => TRUE,
+        ),
+      ),
+    ),
+    'search_api_highlighting' => array(
+      'status' => 1,
+      'weight' => 35,
+      'settings' => array(
+        'prefix' => '<strong>',
+        'suffix' => '</strong>',
+        'excerpt' => 1,
+        'excerpt_length' => 256,
+        'highlight' => 'always',
+      ),
+    ),
+  );
+  entity_save('search_api_index', $index_settings);
+
+  // Change block's region and visibility.
+  _block_rehash('drupalife_store');
+  // Search block (exposed filter).
+  db_update('block')
+    ->fields(array(
+      'status' => 1,
+      'weight' => -10,
+      'region' => 'content',
+      'pages' => 'search',
+      'visibility' => 1,
+    ))
+    ->condition('module', 'views')
+    ->condition('delta', '-exp-search-page')
+    ->condition('theme', 'drupalife_store')
+    ->execute();
+
+  // Facet API - price.
+  db_update('block')
+    ->fields(array(
+      'status' => 1,
+      'weight' => -10,
+      'region' => 'sidebar_first',
+      'title' => $t('Filter by price'),
+    ))
+    ->condition('module', 'facetapi')
+    ->condition('delta', 'eUql62WyfFMGgz42ZEmFllY4VrQC7oB0')
+    ->condition('theme', 'drupalife_store')
+    ->execute();
+
+  // Facet API - category.
+  db_update('block')
+    ->fields(array(
+      'status' => 1,
+      'weight' => -9,
+      'region' => 'sidebar_first',
+      'title' => $t('Filter by category'),
+    ))
+    ->condition('module', 'facetapi')
+    ->condition('delta', 'QjWzY1OW3LLst9QkfvsA05ttxV3jWo0q')
+    ->condition('theme', 'drupalife_store')
+    ->execute();
+
+  // This variable used by page.tpl.php for changing search boxes.
+  variable_set('drupalife_store_selected_search', 'search_api');
+
+  variable_set('search_api_facets_search_ids', unserialize('a:1:{s:15:"product_display";a:1:{s:28:"search_api_views:search:page";s:28:"search_api_views:search:page";}}'));
+
+  // For hiding commerce_search_api warning, which does not work properly and
+  // misleading.
+  drupal_get_messages();
+}
+
+/**
+ * Hiding state field on checkout page.
+ */
+function drupalife_store_install_hide_state_field() {
+  // Enable module which contain ctools plugin for doing that.
+  module_enable(array('drupalife_store_custom'));
+  $addressfield = db_select('field_config_instance', 'c')
+    ->fields('c')
+    ->condition('c.field_name', 'commerce_customer_address')
+    ->execute()
+    ->fetchAssoc();
+  $addressfield_new = unserialize($addressfield['data']);
+  $addressfield_new['widget']['settings']['format_handlers']['hide_state'] = 'hide_state';
+  db_update('field_config_instance')
+    ->fields(array(
+      'data' => serialize($addressfield_new),
+    ))
+    ->condition('field_name', 'commerce_customer_address')
+    ->execute();
+}

@@ -1,0 +1,86 @@
+screenshot  = screenshot.png
+name        = Drupalife Store
+description = Default Drupalife Store theme.
+core        = 7.x
+base theme  = zen
+
+; First we remove the system's menu and message styling since Zen has its own.
+stylesheets[all][] = system.menus.css
+stylesheets[all][] = system.messages.css
+stylesheets[all][] = system.theme.css
+
+; Then we add our own stylesheet.
+stylesheets[all][] = css/styles.css
+stylesheets[all][] = color/color.css
+
+; If you still wish to use conditional stylesheets, you must install the
+; conditional stylesheets module: https://drupal.org/project/conditional_styles
+;stylesheets-conditional[lte IE 8][all][] = css/ie8.css
+
+; Optionally add some JavaScripts to your theme.
+
+scripts[] = js/script.js
+
+
+regions[navigation]     = Navigation
+regions[help]           = Help
+regions[content]        = Content
+regions[content_front]  = Front content
+regions[sidebar_first]  = Sidebar
+regions[footer]         = Footer
+
+; The page_top and page_bottom regions are hidden, which means they will not
+; show up on the blocks administration page. But they are required in order for
+; the html.tpl.php to work properly, so do not delete them.
+
+regions[page_top]       = Page top
+regions[page_bottom]    = Page bottom
+
+
+features[] = logo
+features[] = name
+features[] = slogan
+features[] = node_user_picture
+features[] = comment_user_picture
+features[] = favicon
+features[] = main_menu
+features[] = secondary_menu
+
+
+; Default Zen settings.
+settings[zen_breadcrumb]           = yes
+settings[zen_breadcrumb_separator] = ' › '
+settings[zen_breadcrumb_home]      = 1
+settings[zen_breadcrumb_trailing]  = 0
+settings[zen_breadcrumb_title]     = 0
+settings[zen_skip_link_anchor]     = main-menu
+settings[zen_skip_link_text]       = Jump to navigation
+settings[zen_html5_respond_meta][] = respond
+settings[zen_html5_respond_meta][] = html5
+settings[zen_html5_respond_meta][] = meta
+settings[zen_rebuild_registry]     = 0
+settings[zen_wireframes]           = 0
+
+; Theme specific settings.
+settings[background_image_x]       = 'center'
+settings[background_image_y]       = 'center'
+settings[background_image_size]    = 'auto'
+settings[background_image_repeat]  = 'repeat'
+settings[social_vk]                = ''
+settings[social_facebook]          = ''
+settings[social_google]            = ''
+settings[social_twitter]           = ''
+
+; Information added by Drupal.org packaging script on 2014-03-10
+version = "7.x-1.x-dev"
+core = "7.x"
+project = "drupalife_store"
+datestamp = "1394453006"
+
+
+; Information added by Drupal.org packaging script on 2014-06-15
+version = "7.x-1.0-beta3"
+core = "7.x"
+project = "drupalife_store"
+datestamp = "1402822728"
+

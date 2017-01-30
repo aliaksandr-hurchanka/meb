@@ -1,0 +1,23 @@
+name = Drupalife Store - Search API
+core = 7.x
+package = Drupalife Store
+version = 7.x-1.x
+project = drupalife_store_search_api
+dependencies[] = ctools
+dependencies[] = entity
+dependencies[] = facetapi
+dependencies[] = search_api
+dependencies[] = search_api_db
+dependencies[] = views
+features[ctools][] = facetapi:facetapi_defaults:1
+features[ctools][] = views:views_default:3.0
+features[features_api][] = api:2
+features[views_view][] = search
+features_exclude[dependencies][commerce_search_api] = commerce_search_api
+
+; Information added by Drupal.org packaging script on 2014-06-15
+version = "7.x-1.0-beta3"
+core = "7.x"
+project = "drupalife_store"
+datestamp = "1402822728"
+
